@@ -1,39 +1,58 @@
-const cricketAlerts: string[] = [
-  "WICKET! Virat Kohli caught behind for 45 runs!",
-  "SIX! Rohit Sharma hits a massive six over long-on!",
-  "FOUR! Beautiful cover drive by Kane Williamson!",
-  "WICKET! Steve Smith bowled by a stunning yorker!",
-  "WIDE DELIVERY! The ball goes way outside off stump",
-  "FREE HIT! No-ball called, next delivery is a free hit",
-  "SIX! MS Dhoni finishes in style with a huge six!",
-  "WICKET! Joe Root trapped LBW for 67!",
-  "FOUR! Babar Azam plays an elegant late cut!",
-  "WICKET! David Warner caught in the slips!"
-];
+import { db } from '@/app/firebase/config';
+import { doc, onSnapshot, Unsubscribe } from 'firebase/firestore';
+import { ALLOWED_ALERT_ACTIONS } from '../config'; // Import the allowed actions
 
-let currentAlertIndex = 0;
+let unsubscribe: Unsubscribe | null = null;
 
-type AlertCallback = (alert: string) => void;
+type AlertCallback = (alert: string | number) => void; // Allow number type for callback
 
-export const startAlertService = (callback: AlertCallback): ReturnType<typeof setInterval> => {
-  // Reset index when starting
-  currentAlertIndex = 0;
+export const startAlertService = (matchId: string, callback: AlertCallback): void => {
+  // Stop any existing listener
+  if (unsubscribe) {
+    unsubscribe();
+  }
 
-  // Set up interval to send alerts every 30 seconds
-  const intervalId = setInterval(() => {
-    if (currentAlertIndex < cricketAlerts.length) {
-      callback(cricketAlerts[currentAlertIndex]);
-      currentAlertIndex++;
+  if (!matchId) {
+    console.warn('Match ID is not provided for alert service.');
+    return;
+  }
+
+  const docRef = doc(db, 'demo-scores', matchId);
+
+  unsubscribe = onSnapshot(docRef, (docSnap) => {
+    if (docSnap.exists()) {
+      const data = docSnap.data();
+      const currentAction = data?.last_action;
+
+      // Check if last_action exists and is in the allowed list
+      let shouldTriggerAlert = false;
+
+      if (typeof currentAction === 'string') {
+        if (currentAction.trim() !== '' && ALLOWED_ALERT_ACTIONS.includes(currentAction)) {
+          shouldTriggerAlert = true;
+        }
+      } else if (typeof currentAction === 'number') {
+         if (ALLOWED_ALERT_ACTIONS.includes(currentAction)) {
+           shouldTriggerAlert = true;
+         }
+      }
+
+      if (shouldTriggerAlert) {
+        console.log('Action detected:', currentAction);
+        callback(currentAction);
+      }
     } else {
-      // Stop the interval when all alerts have been shown
-      clearInterval(intervalId);
+      console.log('No such document for match ID:', matchId);
     }
-  }, 30000);
-
-  // Return the interval ID so it can be cleared if needed
-  return intervalId;
+  }, (error) => {
+    console.error('Error listening to demo-scores document:', error);
+  });
 };
 
-export const stopAlertService = (intervalId: ReturnType<typeof setInterval>): void => {
-  clearInterval(intervalId);
+export const stopAlertService = (): void => {
+  if (unsubscribe) {
+    unsubscribe();
+    unsubscribe = null;
+    console.log('Firebase listener stopped.');
+  }
 }; 
